@@ -97,8 +97,8 @@ class Morpion {
         }
 
         const isFull = board.every((line) => (
-			line.every((cell) => cell !== null)
-		));
+					line.every((cell) => cell !== null)
+				));
         return isFull ? 'tie' : null;
     }
 
@@ -223,6 +223,7 @@ class Morpion {
 						this.currentStrategy = new HardDifficultyStrategy(this.humanPlayer, this.iaPlayer, this.turn, this.getBoardWinner)
 						break;
 				}
+				console.log(button.id);
 			});
 		});
 	};
