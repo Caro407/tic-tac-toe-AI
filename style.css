@@ -102,3 +102,7 @@ body {
 	border-radius: 15px;
 	font-size: 2.5rem;
 }
+
+.no-more-action {
+	opacity: 50%;
+}

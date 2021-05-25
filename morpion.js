@@ -1,7 +1,7 @@
 class Morpion {
 	humanPlayer = 'J1';
 	iaPlayer = 'J2';
-    turn = 0;
+  turn = 0;
 	gameOver = false;
 
 	gridMap = [
@@ -10,10 +10,16 @@ class Morpion {
 		[null, null, null],
 	];
 
+	currentStrategy = null;
+
 	constructor(firstPlayer = 'J1') {
 		this.humanPlayer = firstPlayer;
 		this.iaPlayer = (firstPlayer === 'J1') ? 'J2' : 'J1';
-		this.initGame();
+		if(localStorage.getItem('turn-1')) {
+			this.initLocalStorage();
+		} else {
+			this.initGame();
+		};
 	}
 
 	initGame = () => {
@@ -25,9 +31,33 @@ class Morpion {
 			});
 		});
 
+		this.undo();
+		this.redo();
+		this.currentStrategy = new HardDifficultyStrategy(this.humanPlayer, this.iaPlayer, this.turn, this.getBoardWinner);
+		this.setIADifficulty();
+
 		if (this.iaPlayer === 'J1') {
 			this.doPlayIa();
 		}
+	}
+
+	initLocalStorage = () => {
+		for (let i = 1; i < 10; i++){
+			let data = localStorage.getItem(`turn-${i}`);
+    	if(data) {
+				let turnInfos = JSON.parse(data);
+				let cells = turnInfos.cell.split(',');
+				let x = parseInt(cells[0]);
+				let y = parseInt(cells[1]);
+				this.gridMap[y][x] = turnInfos.player;
+				this.turn = i;
+				this.getCell(x, y).classList.add(`filled-${turnInfos.player}`);
+			} else {
+				break
+			}
+		}
+
+		this.initGame();
 	}
 
 	getCell = (x, y) => {
@@ -44,14 +74,12 @@ class Morpion {
 
         let winner = null;
 
-        // Horizontal
         board.forEach((line) => {
             if (isWinningRow(line)) {
                 winner = line[0];
             }
         });
 
-        // Vertical
         [0, 1, 2].forEach((col) => {
             if (isWinningRow([board[0][col], board[1][col], board[2][col]])) {
                 winner = board[0][col];
@@ -62,7 +90,6 @@ class Morpion {
             return winner;
         }
 
-        // Diagonal
         const diagonal1 = [board[0][0], board[1][1], board[2][2]];
         const diagonal2 = [board[0][2], board[1][1], board[2][0]];
         if (isWinningRow(diagonal1) || isWinningRow(diagonal2)) {
@@ -99,6 +126,7 @@ class Morpion {
 		const endMessageElement = document.getElementById('end-message');
 		endMessageElement.textContent = message;
 		endMessageElement.style.display = 'block';
+		localStorage.clear();
 	}
 
 	drawHit = (x, y, player) => {
@@ -107,8 +135,13 @@ class Morpion {
 		}
 
 		this.gridMap[y][x] = player;
-        this.turn += 1;
+    this.turn += 1;
 		this.getCell(x, y).classList.add(`filled-${player}`);
+		let turnInfos = {
+			"player": `${player}`,
+			"cell": `${[x, y]}`
+		};
+		localStorage.setItem(`turn-${this.turn}`, JSON.stringify(turnInfos));
 		this.checkWinner(player);
 		return true;
 	}
@@ -128,93 +161,69 @@ class Morpion {
 			return;
 		}
 
-        const { x, y } = this.minmax(this.gridMap, 0, -Infinity, Infinity, true);
-        this.drawHit(x, y, this.iaPlayer);
+		const { x, y } = this.currentStrategy.nextMove(this.gridMap, 0, -Infinity, Infinity, true)
+    this.drawHit(x, y, this.iaPlayer);
 	}
 
-    minmax = (board, depth, alpha, beta, isMaximizing) => {
-        // Return a score when there is a winner
-        const winner = this.getBoardWinner(board);
-        if (winner === this.iaPlayer) {
-            return 10 - depth;
-        }
-        if (winner === this.humanPlayer) {
-            return depth - 10;
-        }
-        if (winner === 'tie' && this.turn === 9) {
-            return 0;
-        }
+	undo = () => {
+		const undoButton = document.querySelector('.undo-button');
+		undoButton.addEventListener("click", (event) => {
+			event.preventDefault();
+			let turn = this.turn + 1;
+			if(turn <= 1) {
+				console.warn('Vous ne pouvez pas revenir plus en arrière');
+			} else {
+				for(let i = turn - 1; i >= turn - 2; i--) {
+					let turnInfos = JSON.parse(localStorage.getItem(`turn-${i}`));
+					let cells = turnInfos.cell.split(',');
+					let x = parseInt(cells[0]);
+					let y = parseInt(cells[1]);
+					this.gridMap[y][x] = null;
+					this.getCell(x, y).classList.remove(`filled-${turnInfos.player}`);
+					this.turn -= 1;
+				}
+			}
+		})
+	};
 
-        const getSimulatedScore = (x, y, player) => {
-            board[y][x] = player;
-            this.turn += 1;
+	redo = () => {
+		const redoButton = document.querySelector('.redo-button');
+		redoButton.addEventListener("click", (event) => {
+			event.preventDefault();
+			let turn = this.turn;
+			if(!localStorage.getItem(`turn-${turn + 2}`)) {
+				console.warn('Aucun coup à refaire.');
+			} else {
+				for(let i = turn + 1; i <= turn + 2; i++) {
+					let turnInfos = JSON.parse(localStorage.getItem(`turn-${i}`));
+					let cells = turnInfos.cell.split(',');
+					let x = parseInt(cells[0]);
+					let y = parseInt(cells[1]);
+					this.gridMap[y][x] = turnInfos.player;
+					this.getCell(x, y).classList.add(`filled-${turnInfos.player}`);
+					this.turn += 1;
+				}
+			}
+		})
+	};
 
-            const score = this.minmax(
-                board,
-                depth + 1,
-                alpha,
-                beta,
-                player === this.humanPlayer
-            );
-
-            board[y][x] = null;
-            this.turn -= 1;
-
-            return score;
-        };
-
-        // This tree is going to test every move still possible in game
-        // and suppose that the 2 players will always play there best move.
-        // The IA search for its best move by testing every combinations,
-        // and affects score to every node of the tree.
-        if (isMaximizing) {
-            // The higher is the score, the better is the move for the IA.
-            let bestIaScore = -Infinity;
-            let optimalMove;
-            for (const y of [0, 1, 2]) {
-                for (const x of [0, 1, 2]) {
-                    if (board[y][x]) {
-                        continue;
-                    }
-
-                    const score = getSimulatedScore(x, y, this.iaPlayer);
-                    if (score > bestIaScore) {
-                        bestIaScore = score;
-                        optimalMove = { x, y };
-                    }
-
-                    // clear useless branch of the algorithm tree
-                    // (optional but recommended)
-                    alpha = Math.max(alpha, score);
-                    if (beta <= alpha) {
-                        break;
-                    }
-                }
-            }
-
-            return (depth === 0) ? optimalMove : bestIaScore;
-        }
-
-        // The lower is the score, the better is the move for the player.
-        let bestHumanScore = Infinity;
-        for (const y of [0, 1, 2]) {
-            for (const x of [0, 1, 2]) {
-                if (board[y][x]) {
-                    continue;
-                }
-
-                const score = getSimulatedScore(x, y, this.humanPlayer);
-                bestHumanScore = Math.min(bestHumanScore, score);
-
-                // clear useless branch of the algorithm tree
-                // (optional but recommended)
-                beta = Math.min(beta, score);
-                if (beta <= alpha) {
-                    break;
-                }
-            }
-        }
-
-        return bestHumanScore;
-    }
+	setIADifficulty = () => {
+		let difficultyButtons = document.querySelectorAll('.difficulty-button');
+		difficultyButtons.forEach(button => {
+			button.addEventListener('click', (event) => {
+				event.preventDefault();
+				switch (button.id) {
+					case 'easy-difficulty':
+						this.currentStrategy = new EasyDifficultyStrategy(this.humanPlayer, this.iaPlayer, this.turn, this.getBoardWinner)
+						break;
+					case 'medium-difficulty':
+						this.currentStrategy = new MediumDifficultyStrategy(this.humanPlayer, this.iaPlayer, this.turn, this.getBoardWinner)
+						break;
+					case 'hard-difficulty':
+						this.currentStrategy = new HardDifficultyStrategy(this.humanPlayer, this.iaPlayer, this.turn, this.getBoardWinner)
+						break;
+				}
+			});
+		});
+	};
 }
